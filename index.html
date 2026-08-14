@@ -51,291 +51,39 @@
       <button class="primary" onclick="startScan('danfe')">📷 Ler DANFE</button>
       <button class="secondary" onclick="loadDemo(1)">Pedido teste 1</button>
     </div>
-    <div class="row" style="margin-top:8px">
-      <button class="secondary" onclick="loadDemo(2)">Pedido teste 2 — duas torras</button>
-    </div>
+    <div class="row" style="margin-top:8px"><button class="secondary" onclick="loadDemo(2)">Pedido teste 2 — duas torras</button></div>
     <p class="small">Pedido teste 1: 3 × Especial Moído 1 kg Escura. Pedido teste 2: Gourmet Grãos 1 kg Clara + Escura, ambos com o mesmo EAN comercial.</p>
   </section>
-
   <section class="card hidden" id="scannerCard">
     <h2 id="scannerTitle">Scanner</h2>
-    <div id="videoWrap">
-      <video id="video" playsinline muted></video>
-      <div class="guide"></div>
-      <div class="guideText">Enquadre o código inteiro, com margem nas laterais</div>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <button class="secondary" onclick="stopScan()">Cancelar câmera</button>
-    </div>
-    <details style="margin-top:10px">
-      <summary class="small">Digitar código manualmente</summary>
-      <input id="manualCode" placeholder="Digite a chave/EAN">
-      <button class="primary" style="width:100%;margin-top:7px" onclick="manualSubmit()">Usar código digitado</button>
-    </details>
+    <div id="videoWrap"><video id="video" playsinline muted></video><div class="guide"></div><div class="guideText">Enquadre o código inteiro, com margem nas laterais</div></div>
+    <div class="row" style="margin-top:10px"><button class="secondary" onclick="stopScan()">Cancelar câmera</button></div>
+    <details style="margin-top:10px"><summary class="small">Digitar código manualmente</summary><input id="manualCode" placeholder="Digite a chave/EAN"><button class="primary" style="width:100%;margin-top:7px" onclick="manualSubmit()">Usar código digitado</button></details>
   </section>
-
-  <section class="card hidden" id="messageCard">
-    <div id="message" class="notice"></div>
-    <div id="messageActions"></div>
-  </section>
-
+  <section class="card hidden" id="messageCard"><div id="message" class="notice"></div><div id="messageActions"></div></section>
   <section class="card hidden" id="orderCard">
-    <span class="badge" id="statusBadge">EM TESTE</span>
-    <h2 style="margin-top:8px">Pedido <span id="orderNumber"></span></h2>
+    <span class="badge" id="statusBadge">EM TESTE</span><h2 style="margin-top:8px">Pedido <span id="orderNumber"></span></h2>
     <div class="small">Cliente</div><div id="clientName" style="font-weight:700"></div>
-    <div class="progress"><div class="bar" id="orderBar"></div></div>
-    <div id="orderProgress" class="small"></div>
-
-    <div class="zones" style="margin:14px 0">
-      <div class="zone">NÃO<br>CONFERIDO</div><div class="arrow">→</div><div class="zone" style="border-color:#79bd96">CONFERIDO</div>
-    </div>
-
-    <div id="items"></div>
-    <button class="primary" id="scanProductBtn" style="width:100%" onclick="startScan('product')">📦 Ler próxima unidade</button>
-    <button class="secondary" style="width:100%;margin-top:8px" onclick="resetDemo()">Reiniciar teste</button>
+    <div class="progress"><div class="bar" id="orderBar"></div></div><div id="orderProgress" class="small"></div>
+    <div class="zones" style="margin:14px 0"><div class="zone">NÃO<br>CONFERIDO</div><div class="arrow">→</div><div class="zone" style="border-color:#79bd96">CONFERIDO</div></div>
+    <div id="items"></div><button class="primary" id="scanProductBtn" style="width:100%" onclick="startScan('product')">📦 Ler próxima unidade</button><button class="secondary" style="width:100%;margin-top:8px" onclick="resetDemo()">Reiniciar teste</button>
   </section>
-
-  <section class="card hidden" id="choiceCard">
-    <h2>Código compartilhado</h2>
-    <p id="choiceText"></p>
-    <div id="choices"></div>
-    <button class="secondary" style="width:100%;margin-top:8px" onclick="cancelChoice()">Cancelar</button>
-  </section>
-
-  <footer>
-    Este protótipo não identifica fisicamente uma unidade individual. A proteção contra repetir o mesmo pacote depende do fluxo “não conferido → leitura → conferido”.
-  </footer>
+  <section class="card hidden" id="choiceCard"><h2>Código compartilhado</h2><p id="choiceText"></p><div id="choices"></div><button class="secondary" style="width:100%;margin-top:8px" onclick="cancelChoice()">Cancelar</button></section>
+  <footer>Este protótipo não identifica fisicamente uma unidade individual. A proteção contra repetir o mesmo pacote depende do fluxo “não conferido → leitura → conferido”.</footer>
 </main>
-
 <script>
-const DANFE_TESTE_1 = "31260800000000000100550010000000011000000001";
-const DANFE_TESTE_2 = "31260800000000000100550010000000021000000002";
-
-const catalog = {
-  "7898377320097": [
-    {sku:"CDC-MAR-GRA-500G-CL", label:"Moca Arara | Grãos | 500 g | Clara"},
-    {sku:"CDC-MAR-GRA-500G-MD", label:"Moca Arara | Grãos | 500 g | Média"}
-  ],
-  "7898377320110": [
-    {sku:"CDC-GOU-GRA-1KG-CL",label:"Gourmet | Grãos | 1 kg | Clara"},
-    {sku:"CDC-GOU-GRA-1KG-MD",label:"Gourmet | Grãos | 1 kg | Média"},
-    {sku:"CDC-GOU-GRA-1KG-ES",label:"Gourmet | Grãos | 1 kg | Escura"},
-    {sku:"CDC-GOU-MOI-1KG-CL",label:"Gourmet | Moído | 1 kg | Clara"},
-    {sku:"CDC-GOU-MOI-1KG-MD",label:"Gourmet | Moído | 1 kg | Média"},
-    {sku:"CDC-GOU-MOI-1KG-ES",label:"Gourmet | Moído | 1 kg | Escura"}
-  ],
-  "7898377320127": [
-    {sku:"CDC-GOU-GRA-500G-CL",label:"Gourmet | Grãos | 500 g | Clara"},
-    {sku:"CDC-GOU-GRA-500G-MD",label:"Gourmet | Grãos | 500 g | Média"},
-    {sku:"CDC-GOU-GRA-500G-ES",label:"Gourmet | Grãos | 500 g | Escura"},
-    {sku:"CDC-GOU-MOI-500G-CL",label:"Gourmet | Moído | 500 g | Clara"},
-    {sku:"CDC-GOU-MOI-500G-MD",label:"Gourmet | Moído | 500 g | Média"},
-    {sku:"CDC-GOU-MOI-500G-ES",label:"Gourmet | Moído | 500 g | Escura"}
-  ],
-  "7898377320134": [
-    {sku:"CDC-GOU-GRA-250G-CL",label:"Gourmet | Grãos | 250 g | Clara"},
-    {sku:"CDC-GOU-GRA-250G-MD",label:"Gourmet | Grãos | 250 g | Média"},
-    {sku:"CDC-GOU-GRA-250G-ES",label:"Gourmet | Grãos | 250 g | Escura"},
-    {sku:"CDC-GOU-MOI-250G-CL",label:"Gourmet | Moído | 250 g | Clara"},
-    {sku:"CDC-GOU-MOI-250G-MD",label:"Gourmet | Moído | 250 g | Média"},
-    {sku:"CDC-GOU-MOI-250G-ES",label:"Gourmet | Moído | 250 g | Escura"}
-  ],
-  "7898377320158": [
-    {sku:"CDC-ESP-GRA-1KG-CL",label:"Especial | Grãos | 1 kg | Clara"},
-    {sku:"CDC-ESP-GRA-1KG-MD",label:"Especial | Grãos | 1 kg | Média"},
-    {sku:"CDC-ESP-GRA-1KG-ES",label:"Especial | Grãos | 1 kg | Escura"},
-    {sku:"CDC-ESP-MOI-1KG-CL",label:"Especial | Moído | 1 kg | Clara"},
-    {sku:"CDC-ESP-MOI-1KG-MD",label:"Especial | Moído | 1 kg | Média"},
-    {sku:"CDC-ESP-MOI-1KG-ES",label:"Especial | Moído | 1 kg | Escura"}
-  ],
-  "7898377320189": [
-    {sku:"CDC-ESP-GRA-250G-CL",label:"Especial | Grãos | 250 g | Clara"},
-    {sku:"CDC-ESP-GRA-250G-MD",label:"Especial | Grãos | 250 g | Média"},
-    {sku:"CDC-ESP-GRA-250G-ES",label:"Especial | Grãos | 250 g | Escura"},
-    {sku:"CDC-ESP-MOI-250G-CL",label:"Especial | Moído | 250 g | Clara"},
-    {sku:"CDC-ESP-MOI-250G-MD",label:"Especial | Moído | 250 g | Média"},
-    {sku:"CDC-ESP-MOI-250G-ES",label:"Especial | Moído | 250 g | Escura"}
-  ],
-  "7898377320196": [
-    {sku:"CDC-ESP-GRA-500G-CL",label:"Especial | Grãos | 500 g | Clara"},
-    {sku:"CDC-ESP-GRA-500G-MD",label:"Especial | Grãos | 500 g | Média"},
-    {sku:"CDC-ESP-GRA-500G-ES",label:"Especial | Grãos | 500 g | Escura"},
-    {sku:"CDC-ESP-MOI-500G-CL",label:"Especial | Moído | 500 g | Clara"},
-    {sku:"CDC-ESP-MOI-500G-MD",label:"Especial | Moído | 500 g | Média"},
-    {sku:"CDC-ESP-MOI-500G-ES",label:"Especial | Moído | 500 g | Escura"}
-  ]
-};
-
-const demos = {
-  1:{
-    key:DANFE_TESTE_1, number:"TESTE-0001", client:"CLIENTE DE TESTE",
-    items:[
-      {id:"I1", sku:"CDC-ESP-MOI-1KG-ES", ean:"7898377320158", label:"Café da Casa Especial | Moído | 1 kg | Escura", qty:3, checked:0}
-    ]
-  },
-  2:{
-    key:DANFE_TESTE_2, number:"TESTE-0002", client:"CENÁRIO DE DUAS TORRAS",
-    items:[
-      {id:"I1", sku:"CDC-GOU-GRA-1KG-CL", ean:"7898377320110", label:"Café da Casa Gourmet | Grãos | 1 kg | Clara", qty:1, checked:0},
-      {id:"I2", sku:"CDC-GOU-GRA-1KG-ES", ean:"7898377320110", label:"Café da Casa Gourmet | Grãos | 1 kg | Escura", qty:1, checked:0}
-    ]
-  }
-};
-
-let currentOrder=null, scanMode=null, controls=null, reader=null, pendingCode=null;
-let scanLocked=false, lastCode="", lastAt=0;
-
-function clone(x){return JSON.parse(JSON.stringify(x))}
-function show(id,on=true){document.getElementById(id).classList.toggle("hidden",!on)}
-function hideAllMessages(){show("messageCard",false);show("choiceCard",false)}
-function beep(ok=true){
-  try{
-    const A=window.AudioContext||window.webkitAudioContext; const ac=new A();
-    const o=ac.createOscillator(),g=ac.createGain();o.connect(g);g.connect(ac.destination);
-    o.frequency.value=ok?900:190;g.gain.value=.08;o.start();o.stop(ac.currentTime+(ok?.08:.22));
-  }catch(e){}
-}
-function msg(text,type="warning",actions=""){
-  const el=document.getElementById("message"); el.className="notice "+type; el.innerHTML=text;
-  document.getElementById("messageActions").innerHTML=actions; show("messageCard",true);
-}
-function loadDemo(n){
-  stopScan();hideAllMessages();currentOrder=clone(demos[n]);renderOrder();show("orderCard",true);
-  msg("✅ Pedido de teste carregado. Agora use <b>Ler próxima unidade</b> e aponte para o código comercial do pacote.","ok");
-}
-function orderByKey(key){
-  if(key===DANFE_TESTE_1)return clone(demos[1]);
-  if(key===DANFE_TESTE_2)return clone(demos[2]);
-  return null;
-}
-async function startScan(mode){
-  hideAllMessages(); scanMode=mode; scanLocked=false;
-  document.getElementById("scannerTitle").textContent = mode==="danfe" ? "Ler DANFE" : "Ler produto";
-  show("scannerCard",true);
-  try{
-    reader=new ZXingBrowser.BrowserMultiFormatReader();
-    controls=await reader.decodeFromConstraints(
-      {audio:false,video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}},
-      document.getElementById("video"),
-      (result,error,ctrl)=>{
-        if(result && !scanLocked){
-          scanLocked=true;
-          const code=result.getText().trim();
-          ctrl.stop(); controls=null; show("scannerCard",false);
-          handleScan(code);
-        }
-      }
-    );
-  }catch(e){
-    msg("Não consegui abrir a câmera. Confirme a permissão da câmera e que o site está aberto por HTTPS.<br><span class='small'>"+String(e)+"</span>","danger");
-  }
-}
-function stopScan(){
-  try{if(controls)controls.stop()}catch(e){}
-  controls=null;scanLocked=false;show("scannerCard",false);
-}
-function manualSubmit(){
-  const v=document.getElementById("manualCode").value.trim();
-  if(!v)return;stopScan();handleScan(v);
-}
-function handleScan(code){
-  const now=Date.now();
-  if(code===lastCode && now-lastAt<1300)return;
-  lastCode=code;lastAt=now;
-  if(scanMode==="danfe") return handleDanfe(code);
-  return handleProduct(code);
-}
-function handleDanfe(code){
-  const digits=code.replace(/\D/g,"");
-  if(digits.length!==44){
-    beep(false);msg("❌ O código lido não tem 44 dígitos. Não parece ser a chave da DANFE.<br><b>"+escapeHtml(code)+"</b>","danger");return;
-  }
-  const o=orderByKey(digits);
-  if(!o){
-    beep(true);
-    msg("✅ <b>A leitura da DANFE funcionou.</b><br>Chave lida: <span class='small'>"+digits+"</span><br><br>Ela não está cadastrada neste protótipo público. Use um dos pedidos de teste para continuar sem expor dados reais.","ok",
-    "<button class='primary' style='width:100%' onclick='loadDemo(1)'>Continuar com Pedido teste 1</button>");
-    return;
-  }
-  currentOrder=o;beep(true);renderOrder();show("orderCard",true);
-  msg("✅ DANFE de teste reconhecida. Pedido carregado.","ok");
-}
-function handleProduct(code){
-  if(!currentOrder){beep(false);msg("Primeiro carregue ou leia um pedido.","danger");return}
-  const remaining=currentOrder.items.filter(i=>i.checked<i.qty);
-  const inOrderAll=currentOrder.items.filter(i=>i.ean===code || i.sku===code);
-  let matches=remaining.filter(i=>i.ean===code || i.sku===code);
-
-  if(matches.length===0){
-    beep(false);
-    if(inOrderAll.length>0) msg("🔒 <b>QUANTIDADE JÁ COMPLETA.</b><br>Esse produto já atingiu a quantidade pedida.","danger");
-    else msg("❌ <b>PRODUTO NÃO PERTENCE AO PEDIDO.</b><br>Código lido: "+escapeHtml(code),"danger");
-    return;
-  }
-
-  const exactSku=matches.filter(i=>i.sku===code);
-  if(exactSku.length===1){confirmItem(exactSku[0]);return}
-
-  if(matches.length>1){
-    pendingCode=code;
-    document.getElementById("choiceText").innerHTML=
-      "O código <b>"+escapeHtml(code)+"</b> corresponde a mais de um item que ainda falta neste pedido. <b>Confira visualmente a embalagem</b> e escolha qual está na sua mão:";
-    const box=document.getElementById("choices");box.innerHTML="";
-    matches.forEach(i=>{
-      const b=document.createElement("button");b.className="choice";
-      b.innerHTML="<strong>"+escapeHtml(i.label)+"</strong><span>"+i.checked+"/"+i.qty+" conferido(s)</span>";
-      b.onclick=()=>confirmItem(i);box.appendChild(b);
-    });
-    show("choiceCard",true);return;
-  }
-
-  const item=matches[0], globalCandidates=catalog[code]||[];
-  if(globalCandidates.length>1){
-    pendingCode=code;
-    document.getElementById("choiceText").innerHTML=
-      "Este EAN é compartilhado por <b>"+globalCandidates.length+" variações</b>. Neste pedido, o item pendente compatível é:<br><br><b>"+escapeHtml(item.label)+"</b><br><br>Confira <b>Grãos/Moído, peso e torra</b> na embalagem antes de confirmar.";
-    const box=document.getElementById("choices");box.innerHTML="";
-    const yes=document.createElement("button");yes.className="choice ok";
-    yes.innerHTML="<strong>✅ É exatamente esse produto</strong><span>Confirmar 1 unidade</span>";yes.onclick=()=>confirmItem(item);box.appendChild(yes);
-    const no=document.createElement("button");no.className="choice danger";
-    no.innerHTML="<strong>❌ Não é essa variação</strong><span>Não contabilizar</span>";no.onclick=()=>{beep(false);cancelChoice();msg("Produto não contabilizado. Confira a embalagem.","danger")};box.appendChild(no);
-    show("choiceCard",true);return;
-  }
-  confirmItem(item);
-}
-function confirmItem(item){
-  show("choiceCard",false);
-  if(item.checked>=item.qty){beep(false);msg("🔒 Quantidade excedida. Não contabilizado.","danger");return}
-  item.checked++;
-  beep(true);renderOrder();
-  const complete=currentOrder.items.every(i=>i.checked>=i.qty);
-  if(complete){
-    document.getElementById("statusBadge").textContent="CONFERIDO";
-    msg("🟢 <b>PEDIDO CONFERIDO.</b><br>Todas as unidades foram contabilizadas.","ok");
-  }else{
-    msg("✅ <b>1 unidade conferida.</b><br>Agora mova esse pacote para a área <b>CONFERIDO</b> e só então leia o próximo.","ok");
-  }
-}
-function cancelChoice(){show("choiceCard",false);pendingCode=null}
-function renderOrder(){
-  if(!currentOrder)return;
-  document.getElementById("orderNumber").textContent=currentOrder.number;
-  document.getElementById("clientName").textContent=currentOrder.client;
-  const total=currentOrder.items.reduce((s,i)=>s+i.qty,0);
-  const checked=currentOrder.items.reduce((s,i)=>s+i.checked,0);
-  document.getElementById("orderProgress").textContent=checked+" de "+total+" unidade(s) conferida(s)";
-  document.getElementById("orderBar").style.width=(total?checked/total*100:0)+"%";
-  document.getElementById("statusBadge").textContent=checked===total?"CONFERIDO":checked?"EM CONFERÊNCIA":"AGUARDANDO";
-  const box=document.getElementById("items");box.innerHTML="";
-  currentOrder.items.forEach(i=>{
-    const d=document.createElement("div");d.className="item "+(i.checked>=i.qty?"done":"");
-    d.innerHTML="<h3>"+escapeHtml(i.label)+"</h3><div class='big'>"+i.checked+" / "+i.qty+"</div><div class='small'>EAN comercial: "+i.ean+"</div>";
-    box.appendChild(d);
-  });
-  document.getElementById("scanProductBtn").disabled=checked>=total;
-}
-function resetDemo(){stopScan();currentOrder=null;hideAllMessages();show("orderCard",false);show("scannerCard",false)}
-function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
-</script>
-</body>
-</html>
+const DANFE_TESTE_1="31260800000000000100550010000000011000000001",DANFE_TESTE_2="31260800000000000100550010000000021000000002";
+const catalog={"7898377320110":[{sku:"CDC-GOU-GRA-1KG-CL",label:"Gourmet | Grãos | 1 kg | Clara"},{sku:"CDC-GOU-GRA-1KG-MD",label:"Gourmet | Grãos | 1 kg | Média"},{sku:"CDC-GOU-GRA-1KG-ES",label:"Gourmet | Grãos | 1 kg | Escura"},{sku:"CDC-GOU-MOI-1KG-CL",label:"Gourmet | Moído | 1 kg | Clara"},{sku:"CDC-GOU-MOI-1KG-MD",label:"Gourmet | Moído | 1 kg | Média"},{sku:"CDC-GOU-MOI-1KG-ES",label:"Gourmet | Moído | 1 kg | Escura"}],"7898377320158":[{sku:"CDC-ESP-GRA-1KG-CL",label:"Especial | Grãos | 1 kg | Clara"},{sku:"CDC-ESP-GRA-1KG-MD",label:"Especial | Grãos | 1 kg | Média"},{sku:"CDC-ESP-GRA-1KG-ES",label:"Especial | Grãos | 1 kg | Escura"},{sku:"CDC-ESP-MOI-1KG-CL",label:"Especial | Moído | 1 kg | Clara"},{sku:"CDC-ESP-MOI-1KG-MD",label:"Especial | Moído | 1 kg | Média"},{sku:"CDC-ESP-MOI-1KG-ES",label:"Especial | Moído | 1 kg | Escura"}]};
+const demos={1:{key:DANFE_TESTE_1,number:"TESTE-0001",client:"CLIENTE DE TESTE",items:[{id:"I1",sku:"CDC-ESP-MOI-1KG-ES",ean:"7898377320158",label:"Café da Casa Especial | Moído | 1 kg | Escura",qty:3,checked:0}]},2:{key:DANFE_TESTE_2,number:"TESTE-0002",client:"CENÁRIO DE DUAS TORRAS",items:[{id:"I1",sku:"CDC-GOU-GRA-1KG-CL",ean:"7898377320110",label:"Café da Casa Gourmet | Grãos | 1 kg | Clara",qty:1,checked:0},{id:"I2",sku:"CDC-GOU-GRA-1KG-ES",ean:"7898377320110",label:"Café da Casa Gourmet | Grãos | 1 kg | Escura",qty:1,checked:0}]}};
+let currentOrder=null,scanMode=null,controls=null,reader=null,pendingCode=null,scanLocked=false,lastCode="",lastAt=0;
+function clone(x){return JSON.parse(JSON.stringify(x))}function show(id,on=true){document.getElementById(id).classList.toggle("hidden",!on)}function hideAllMessages(){show("messageCard",false);show("choiceCard",false)}function beep(ok=true){try{const A=window.AudioContext||window.webkitAudioContext,ac=new A(),o=ac.createOscillator(),g=ac.createGain();o.connect(g);g.connect(ac.destination);o.frequency.value=ok?900:190;g.gain.value=.08;o.start();o.stop(ac.currentTime+(ok?.08:.22))}catch(e){}}
+function msg(text,type="warning",actions=""){const el=document.getElementById("message");el.className="notice "+type;el.innerHTML=text;document.getElementById("messageActions").innerHTML=actions;show("messageCard",true)}
+function loadDemo(n){stopScan();hideAllMessages();currentOrder=clone(demos[n]);renderOrder();show("orderCard",true);msg("✅ Pedido de teste carregado. Agora use <b>Ler próxima unidade</b> e aponte para o código comercial do pacote.","ok")}
+function orderByKey(key){if(key===DANFE_TESTE_1)return clone(demos[1]);if(key===DANFE_TESTE_2)return clone(demos[2]);return null}
+async function startScan(mode){hideAllMessages();scanMode=mode;scanLocked=false;document.getElementById("scannerTitle").textContent=mode==="danfe"?"Ler DANFE":"Ler produto";show("scannerCard",true);try{reader=new ZXingBrowser.BrowserMultiFormatReader();controls=await reader.decodeFromConstraints({audio:false,video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}},document.getElementById("video"),(result,error,ctrl)=>{if(result&&!scanLocked){scanLocked=true;const code=result.getText().trim();ctrl.stop();controls=null;show("scannerCard",false);handleScan(code)}})}catch(e){msg("Não consegui abrir a câmera. Confirme a permissão da câmera e que o site está aberto por HTTPS.<br><span class='small'>"+String(e)+"</span>","danger")}}
+function stopScan(){try{if(controls)controls.stop()}catch(e){}controls=null;scanLocked=false;show("scannerCard",false)}function manualSubmit(){const v=document.getElementById("manualCode").value.trim();if(!v)return;stopScan();handleScan(v)}function handleScan(code){const now=Date.now();if(code===lastCode&&now-lastAt<1300)return;lastCode=code;lastAt=now;if(scanMode==="danfe")return handleDanfe(code);return handleProduct(code)}
+function handleDanfe(code){const digits=code.replace(/\D/g,"");currentOrder=null;show("orderCard",false);show("choiceCard",false);if(digits.length!==44){beep(false);msg("❌ O código lido não tem 44 dígitos. Não parece ser a chave da DANFE.<br><b>"+escapeHtml(code)+"</b>","danger");return}const o=orderByKey(digits);if(!o){beep(true);const agrupada=digits.match(/.{1,4}/g).join(" ");msg("✅ <b>DANFE REAL LIDA COM SUCESSO.</b><br><br><span class='small'>Chave capturada</span><br><div style='font-family:monospace;font-size:14px;line-height:1.7;word-break:break-word;margin:6px 0 10px'>"+agrupada+"</div><b>O pedido ainda não está cadastrado na base deste protótipo.</b><br>Nenhum produto foi associado automaticamente a esta DANFE.","ok");return}currentOrder=o;beep(true);renderOrder();show("orderCard",true);msg("✅ DANFE de teste reconhecida. Pedido carregado.","ok")}
+function handleProduct(code){if(!currentOrder){beep(false);msg("Primeiro carregue ou leia um pedido.","danger");return}const remaining=currentOrder.items.filter(i=>i.checked<i.qty),inOrderAll=currentOrder.items.filter(i=>i.ean===code||i.sku===code);let matches=remaining.filter(i=>i.ean===code||i.sku===code);if(matches.length===0){beep(false);if(inOrderAll.length>0)msg("🔒 <b>QUANTIDADE JÁ COMPLETA.</b><br>Esse produto já atingiu a quantidade pedida.","danger");else msg("❌ <b>PRODUTO NÃO PERTENCE AO PEDIDO.</b><br>Código lido: "+escapeHtml(code),"danger");return}const exactSku=matches.filter(i=>i.sku===code);if(exactSku.length===1){confirmItem(exactSku[0]);return}if(matches.length>1){pendingCode=code;document.getElementById("choiceText").innerHTML="O código <b>"+escapeHtml(code)+"</b> corresponde a mais de um item que ainda falta neste pedido. <b>Confira visualmente a embalagem</b> e escolha qual está na sua mão:";const box=document.getElementById("choices");box.innerHTML="";matches.forEach(i=>{const b=document.createElement("button");b.className="choice";b.innerHTML="<strong>"+escapeHtml(i.label)+"</strong><span>"+i.checked+"/"+i.qty+" conferido(s)</span>";b.onclick=()=>confirmItem(i);box.appendChild(b)});show("choiceCard",true);return}const item=matches[0],globalCandidates=catalog[code]||[];if(globalCandidates.length>1){pendingCode=code;document.getElementById("choiceText").innerHTML="Este EAN é compartilhado por <b>"+globalCandidates.length+" variações</b>. Neste pedido, o item pendente compatível é:<br><br><b>"+escapeHtml(item.label)+"</b><br><br>Confira <b>Grãos/Moído, peso e torra</b> na embalagem antes de confirmar.";const box=document.getElementById("choices");box.innerHTML="";const yes=document.createElement("button");yes.className="choice ok";yes.innerHTML="<strong>✅ É exatamente esse produto</strong><span>Confirmar 1 unidade</span>";yes.onclick=()=>confirmItem(item);box.appendChild(yes);const no=document.createElement("button");no.className="choice danger";no.innerHTML="<strong>❌ Não é essa variação</strong><span>Não contabilizar</span>";no.onclick=()=>{beep(false);cancelChoice();msg("Produto não contabilizado. Confira a embalagem.","danger")};box.appendChild(no);show("choiceCard",true);return}confirmItem(item)}
+function confirmItem(item){show("choiceCard",false);if(item.checked>=item.qty){beep(false);msg("🔒 Quantidade excedida. Não contabilizado.","danger");return}item.checked++;beep(true);renderOrder();const complete=currentOrder.items.every(i=>i.checked>=i.qty);if(complete){document.getElementById("statusBadge").textContent="CONFERIDO";msg("🟢 <b>PEDIDO CONFERIDO.</b><br>Todas as unidades foram contabilizadas.","ok")}else msg("✅ <b>1 unidade conferida.</b><br>Agora mova esse pacote para a área <b>CONFERIDO</b> e só então leia o próximo.","ok")}
+function cancelChoice(){show("choiceCard",false);pendingCode=null}function renderOrder(){if(!currentOrder)return;document.getElementById("orderNumber").textContent=currentOrder.number;document.getElementById("clientName").textContent=currentOrder.client;const total=currentOrder.items.reduce((s,i)=>s+i.qty,0),checked=currentOrder.items.reduce((s,i)=>s+i.checked,0);document.getElementById("orderProgress").textContent=checked+" de "+total+" unidade(s) conferida(s)";document.getElementById("orderBar").style.width=(total?checked/total*100:0)+"%";document.getElementById("statusBadge").textContent=checked===total?"CONFERIDO":checked?"EM CONFERÊNCIA":"AGUARDANDO";const box=document.getElementById("items");box.innerHTML="";currentOrder.items.forEach(i=>{const d=document.createElement("div");d.className="item "+(i.checked>=i.qty?"done":"");d.innerHTML="<h3>"+escapeHtml(i.label)+"</h3><div class='big'>"+i.checked+" / "+i.qty+"</div><div class='small'>EAN comercial: "+i.ean+"</div>";box.appendChild(d)});document.getElementById("scanProductBtn").disabled=checked>=total}function resetDemo(){stopScan();currentOrder=null;hideAllMessages();show("orderCard",false);show("scannerCard",false)}function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+</script></body></html>
