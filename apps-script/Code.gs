@@ -51,9 +51,15 @@ function iniciarOAuthOlist_() {
   });
 
   return HtmlService.createHtmlOutput(
-    '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>' +
-    '<body style="font-family:Arial;padding:30px"><p>Redirecionando para a Olist...</p>' +
-    '<script>location.replace(' + JSON.stringify(url) + ');</script></body></html>'
+    '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<base target="_top"></head>' +
+    '<body style="font-family:Arial;background:#f3efe9;padding:30px">' +
+    '<div style="max-width:560px;margin:50px auto;background:#fff;padding:24px;border-radius:16px;border:1px solid #ded7ce">' +
+    '<h2>Conectar com a Olist</h2>' +
+    '<p>O Google exige um clique para sair com segurança do Apps Script e abrir a autorização da Olist.</p>' +
+    '<a target="_top" href="' + url.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '" ' +
+    'style="display:inline-block;background:#2a2019;color:#fff;text-decoration:none;padding:14px 20px;border-radius:10px;font-weight:bold">' +
+    'Autorizar na Olist</a></div></body></html>'
   );
 }
 
@@ -102,7 +108,6 @@ function buscarDanfeOlist_(chave) {
 
   const numeroNfe = numeroNfeDaChave_(chave);
 
-  // A API permite pesquisar notas pelo número. Depois confirmamos pela chave completa.
   const lista = olistGet_('/notas', {
     tipo: 'S',
     numero: numeroNfe,
@@ -135,9 +140,7 @@ function buscarDanfeOlist_(chave) {
         produto = olistGet_('/produtos/' + encodeURIComponent(item.idProduto));
         gtin = somenteDigitos_(produto.gtin || '');
         sku = String(produto.sku || sku);
-      } catch (err) {
-        // A nota continua utilizável mesmo se o detalhe do produto falhar.
-      }
+      } catch (err) {}
     }
 
     return {
@@ -172,7 +175,6 @@ function buscarDanfeOlist_(chave) {
 }
 
 function numeroNfeDaChave_(chave) {
-  // Estrutura NF-e: UF(2)+AAMM(4)+CNPJ(14)+modelo(2)+serie(3)+numero(9)+...
   const bloco = chave.substring(25, 34);
   const numero = parseInt(bloco, 10);
   if (!isFinite(numero)) throw new Error('NUMERO_NFE_INVALIDO_NA_CHAVE');
@@ -238,7 +240,6 @@ function salvarTokensOlist_(body) {
   if (body.refresh_token) props.setProperty('OLIST_REFRESH_TOKEN', String(body.refresh_token));
 
   const segundos = Number(body.expires_in || 14400);
-  // Renovar um minuto antes do vencimento.
   props.setProperty('OLIST_ACCESS_EXPIRES_AT', String(Date.now() + Math.max(60, segundos - 60) * 1000));
 }
 
