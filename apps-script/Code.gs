@@ -1,244 +1,278 @@
-const SHEETS = {
-  PEDIDOS: 'PEDIDOS',
-  ITENS: 'ITENS_PEDIDO',
-  CONFERENCIAS: 'CONFERENCIAS',
-  PRODUTOS: 'PRODUTOS',
-  CODIGOS: 'CODIGOS_BARRAS'
+const OLIST = {
+  AUTH_URL: 'https://accounts.tiny.com.br/realms/tiny/protocol/openid-connect/auth',
+  TOKEN_URL: 'https://accounts.tiny.com.br/realms/tiny/protocol/openid-connect/token',
+  API_BASE: 'https://api.tiny.com.br/public-api/v3'
 };
 
 function doGet(e) {
   try {
-    const action = String((e && e.parameter && e.parameter.acao) || 'ping').toLowerCase();
-    if (action === 'ping') return jsonp_(e, { ok: true, service: 'Conferencia Cafe da Casa' });
-    if (action === 'pedido') return jsonp_(e, getPedido_(e.parameter.chave || ''));
-    return jsonp_(e, { ok: false, erro: 'AÇÃO_INVÁLIDA' });
-  } catch (err) {
-    return jsonp_(e, { ok: false, erro: 'ERRO_INTERNO', detalhe: String(err && err.message || err) });
-  }
-}
-
-function doPost(e) {
-  try {
     const p = (e && e.parameter) || {};
-    validarToken_(p.token);
-    const action = String(p.acao || '').toLowerCase();
-    if (action !== 'registrar') return json_({ ok: false, erro: 'AÇÃO_INVÁLIDA' });
-    return json_(registrarConferencia_(p));
+
+    // Retorno do OAuth da Olist.
+    if (p.code) return concluirOAuthOlist_(p.code);
+
+    const acao = String(p.acao || 'ping').toLowerCase();
+
+    if (acao === 'ping') {
+      return jsonp_(e, {
+        ok: true,
+        servico: 'Conferencia Cafe da Casa',
+        olistAutorizada: temTokenOlist_()
+      });
+    }
+
+    if (acao === 'autorizar') return iniciarOAuthOlist_();
+    if (acao === 'status_olist') return jsonp_(e, { ok: true, autorizada: temTokenOlist_() });
+    if (acao === 'danfe') return jsonp_(e, buscarDanfeOlist_(p.chave || ''));
+
+    return jsonp_(e, { ok: false, erro: 'ACAO_INVALIDA' });
   } catch (err) {
-    return json_({ ok: false, erro: 'ERRO', detalhe: String(err && err.message || err) });
+    return jsonp_(e, {
+      ok: false,
+      erro: 'ERRO_INTERNO',
+      detalhe: String(err && err.message || err)
+    });
   }
 }
 
-function getPedido_(chave) {
+function iniciarOAuthOlist_() {
+  const props = PropertiesService.getScriptProperties();
+  const clientId = props.getProperty('OLIST_CLIENT_ID');
+  if (!clientId) throw new Error('OLIST_CLIENT_ID_NAO_CONFIGURADO');
+
+  const redirectUri = ScriptApp.getService().getUrl();
+  if (!redirectUri) throw new Error('PUBLIQUE_O_SCRIPT_COMO_WEB_APP_PRIMEIRO');
+
+  const url = OLIST.AUTH_URL + '?' + query_({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope: 'openid',
+    response_type: 'code'
+  });
+
+  return HtmlService.createHtmlOutput(
+    '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>' +
+    '<body style="font-family:Arial;padding:30px"><p>Redirecionando para a Olist...</p>' +
+    '<script>location.replace(' + JSON.stringify(url) + ');</script></body></html>'
+  );
+}
+
+function concluirOAuthOlist_(code) {
+  const props = PropertiesService.getScriptProperties();
+  const clientId = props.getProperty('OLIST_CLIENT_ID');
+  const clientSecret = props.getProperty('OLIST_CLIENT_SECRET');
+  const redirectUri = ScriptApp.getService().getUrl();
+
+  if (!clientId || !clientSecret) throw new Error('CREDENCIAIS_OLIST_NAO_CONFIGURADAS');
+
+  const resp = UrlFetchApp.fetch(OLIST.TOKEN_URL, {
+    method: 'post',
+    contentType: 'application/x-www-form-urlencoded',
+    payload: {
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      code: code
+    },
+    muteHttpExceptions: true
+  });
+
+  const status = resp.getResponseCode();
+  const body = parseJson_(resp.getContentText());
+  if (status < 200 || status >= 300 || !body.access_token) {
+    throw new Error('FALHA_OAUTH_OLIST_' + status + '_' + JSON.stringify(body));
+  }
+
+  salvarTokensOlist_(body);
+
+  return HtmlService.createHtmlOutput(
+    '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>' +
+    '<body style="font-family:Arial;background:#f3efe9;padding:30px">' +
+    '<div style="max-width:600px;margin:40px auto;background:#fff;padding:24px;border-radius:16px">' +
+    '<h2 style="color:#18794e">✅ Olist conectada com sucesso</h2>' +
+    '<p>O sistema já pode consultar notas fiscais e produtos autorizados na sua conta.</p>' +
+    '<p>Pode fechar esta página.</p></div></body></html>'
+  );
+}
+
+function buscarDanfeOlist_(chave) {
   chave = somenteDigitos_(chave);
-  if (chave.length !== 44) return { ok: false, erro: 'CHAVE_NFE_INVÁLIDA' };
+  if (chave.length !== 44) return { ok: false, erro: 'CHAVE_NFE_INVALIDA' };
 
-  const ss = getDb_();
-  const pedidos = sheetObjects_(ss.getSheetByName(SHEETS.PEDIDOS));
-  const pedido = pedidos.find(r => somenteDigitos_(r.ChaveNFe) === chave);
-  if (!pedido) return { ok: false, erro: 'PEDIDO_NÃO_ENCONTRADO', chave: chave };
+  const numeroNfe = numeroNfeDaChave_(chave);
 
-  const itens = sheetObjects_(ss.getSheetByName(SHEETS.ITENS))
-    .filter(r => String(r.PedidoID) === String(pedido.PedidoID))
-    .map(r => ({
-      itemId: String(r.ItemID || ''),
-      pedidoId: String(r.PedidoID || ''),
-      produtoId: String(r.ProdutoID || ''),
-      codigoInterno: String(r.CodigoInterno || ''),
-      sku: String(r.SKU || ''),
-      produto: String(r.Produto || ''),
-      quantidadePedida: Number(r.QuantidadePedida || 0),
-      quantidadeConferida: Number(r.QuantidadeConferida || 0),
-      status: String(r.StatusItem || 'AGUARDANDO')
-    }));
+  // A API permite pesquisar notas pelo número. Depois confirmamos pela chave completa.
+  const lista = olistGet_('/notas', {
+    tipo: 'S',
+    numero: numeroNfe,
+    limit: 100,
+    offset: 0
+  });
+
+  const candidatos = Array.isArray(lista.itens) ? lista.itens : [];
+  const resumo = candidatos.find(n => somenteDigitos_(n.chaveAcesso) === chave);
+
+  if (!resumo) {
+    return {
+      ok: false,
+      erro: 'NOTA_NAO_ENCONTRADA_NA_OLIST',
+      chave: chave,
+      numeroNFe: numeroNfe
+    };
+  }
+
+  const nota = olistGet_('/notas/' + encodeURIComponent(resumo.id));
+  const itensOriginais = Array.isArray(nota.itens) ? nota.itens : [];
+
+  const itens = itensOriginais.map(function(item) {
+    let produto = null;
+    let gtin = '';
+    let sku = String(item.codigo || '');
+
+    if (item.idProduto) {
+      try {
+        produto = olistGet_('/produtos/' + encodeURIComponent(item.idProduto));
+        gtin = somenteDigitos_(produto.gtin || '');
+        sku = String(produto.sku || sku);
+      } catch (err) {
+        // A nota continua utilizável mesmo se o detalhe do produto falhar.
+      }
+    }
+
+    return {
+      idItemNota: item.idItem || '',
+      idProdutoOlist: item.idProduto || '',
+      sku: sku,
+      codigoNota: String(item.codigo || ''),
+      descricao: String(item.descricao || ''),
+      quantidade: Number(item.quantidade || 0),
+      gtin: gtin,
+      valorUnitario: Number(item.valorUnitario || 0),
+      valorTotal: Number(item.valorTotal || 0)
+    };
+  });
 
   return {
     ok: true,
-    pedido: {
-      pedidoId: String(pedido.PedidoID || ''),
-      chaveNFe: String(pedido.ChaveNFe || ''),
-      numeroNFe: String(pedido.NumeroNFe || ''),
-      numeroPedido: String(pedido.NumeroPedido || ''),
-      cliente: String(pedido.Cliente || ''),
-      status: String(pedido.StatusConferencia || 'AGUARDANDO'),
-      totalItens: Number(pedido.TotalItens || 0),
-      totalConferidos: Number(pedido.TotalConferidos || 0),
+    fonte: 'OLIST',
+    nota: {
+      id: nota.id || resumo.id,
+      numero: String(nota.numero || resumo.numero || numeroNfe),
+      serie: String(nota.serie || resumo.serie || ''),
+      chaveAcesso: chave,
+      dataEmissao: String(nota.dataEmissao || resumo.dataEmissao || ''),
+      cliente: String((nota.cliente && nota.cliente.nome) || (resumo.cliente && resumo.cliente.nome) || ''),
+      numeroPedidoEcommerce: String((nota.ecommerce && nota.ecommerce.numeroPedidoEcommerce) || ''),
+      canalVenda: String((nota.ecommerce && nota.ecommerce.canalVenda) || ''),
+      origemId: String((nota.origem && nota.origem.id) || ''),
       itens: itens
     }
   };
 }
 
-function registrarConferencia_(p) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    const ss = getDb_();
-    const shItens = ss.getSheetByName(SHEETS.ITENS);
-    const shConf = ss.getSheetByName(SHEETS.CONFERENCIAS);
-    const shPedidos = ss.getSheetByName(SHEETS.PEDIDOS);
-
-    const pedidoId = String(p.pedidoId || '');
-    const itemId = String(p.itemId || '');
-    const codigo = String(p.codigoLido || '').trim();
-    if (!pedidoId || !itemId || !codigo) throw new Error('DADOS_INCOMPLETOS');
-
-    const itemRow = findRowByHeaderValue_(shItens, 'ItemID', itemId);
-    if (!itemRow) throw new Error('ITEM_NÃO_ENCONTRADO');
-    const item = rowObject_(shItens, itemRow);
-    if (String(item.PedidoID) !== pedidoId) throw new Error('ITEM_FORA_DO_PEDIDO');
-
-    const conferidasAntes = Number(item.QuantidadeConferida || 0);
-    const pedidas = Number(item.QuantidadePedida || 0);
-    let resultado = String(p.resultado || 'CORRETO').toUpperCase();
-
-    if (resultado === 'CORRETO' && conferidasAntes >= pedidas) resultado = 'QUANTIDADE EXCEDIDA';
-
-    const id = 'CONF-' + Utilities.getUuid();
-    shConf.appendRow([
-      id,
-      pedidoId,
-      itemId,
-      String(item.ProdutoID || p.produtoId || ''),
-      codigo,
-      new Date(),
-      String(p.usuario || ''),
-      resultado,
-      String(p.observacao || '')
-    ]);
-
-    recalcularPedido_(ss, pedidoId);
-    return { ok: true, conferenciaId: id, resultado: resultado };
-  } finally {
-    lock.releaseLock();
-  }
+function numeroNfeDaChave_(chave) {
+  // Estrutura NF-e: UF(2)+AAMM(4)+CNPJ(14)+modelo(2)+serie(3)+numero(9)+...
+  const bloco = chave.substring(25, 34);
+  const numero = parseInt(bloco, 10);
+  if (!isFinite(numero)) throw new Error('NUMERO_NFE_INVALIDO_NA_CHAVE');
+  return numero;
 }
 
-function recalcularPedido_(ss, pedidoId) {
-  const shItens = ss.getSheetByName(SHEETS.ITENS);
-  const shConf = ss.getSheetByName(SHEETS.CONFERENCIAS);
-  const shPedidos = ss.getSheetByName(SHEETS.PEDIDOS);
-
-  const itens = sheetObjectsWithRows_(shItens).filter(x => String(x.data.PedidoID) === String(pedidoId));
-  const confs = sheetObjects_(shConf).filter(x => String(x.PedidoID) === String(pedidoId));
-  const corretas = confs.filter(x => String(x.Resultado).toUpperCase() === 'CORRETO');
-  const divergencia = confs.some(x => String(x.Resultado).toUpperCase() !== 'CORRETO');
-
-  let totalPedidas = 0;
-  let totalConferidas = 0;
-
-  itens.forEach(({ row, data }) => {
-    const qPed = Number(data.QuantidadePedida || 0);
-    const qConf = corretas.filter(c => String(c.ItemID) === String(data.ItemID)).length;
-    const limitada = Math.min(qConf, qPed);
-    totalPedidas += qPed;
-    totalConferidas += limitada;
-
-    let status = 'AGUARDANDO';
-    if (limitada > 0 && limitada < qPed) status = 'PARCIAL';
-    if (qPed > 0 && limitada >= qPed) status = 'CONFERIDO';
-    setByHeader_(shItens, row, 'QuantidadeConferida', limitada);
-    setByHeader_(shItens, row, 'StatusItem', status);
+function olistGet_(path, params) {
+  const token = obterAccessTokenOlist_();
+  const qs = params ? '?' + query_(params) : '';
+  const resp = UrlFetchApp.fetch(OLIST.API_BASE + path + qs, {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
   });
 
-  const pedidoRow = findRowByHeaderValue_(shPedidos, 'PedidoID', pedidoId);
-  if (!pedidoRow) throw new Error('PEDIDO_NÃO_ENCONTRADO');
-
-  let statusPedido = 'AGUARDANDO';
-  if (divergencia) statusPedido = 'DIVERGÊNCIA';
-  else if (totalPedidas > 0 && totalConferidas >= totalPedidas) statusPedido = 'CONFERIDO';
-  else if (totalConferidas > 0) statusPedido = 'EM CONFERÊNCIA';
-
-  setByHeader_(shPedidos, pedidoRow, 'TotalItens', totalPedidas);
-  setByHeader_(shPedidos, pedidoRow, 'TotalConferidos', totalConferidas);
-  setByHeader_(shPedidos, pedidoRow, 'StatusConferencia', statusPedido);
-  if (totalConferidas > 0) {
-    const inicio = getByHeader_(shPedidos, pedidoRow, 'InicioConferencia');
-    if (!inicio) setByHeader_(shPedidos, pedidoRow, 'InicioConferencia', new Date());
+  const status = resp.getResponseCode();
+  const body = parseJson_(resp.getContentText());
+  if (status < 200 || status >= 300) {
+    throw new Error('OLIST_API_' + status + '_' + JSON.stringify(body));
   }
-  if (statusPedido === 'CONFERIDO') setByHeader_(shPedidos, pedidoRow, 'FimConferencia', new Date());
+  return body;
 }
 
-function getDb_() {
-  const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
-  if (!id) throw new Error('SPREADSHEET_ID_NÃO_CONFIGURADO');
-  return SpreadsheetApp.openById(id);
+function obterAccessTokenOlist_() {
+  const props = PropertiesService.getScriptProperties();
+  const access = props.getProperty('OLIST_ACCESS_TOKEN');
+  const refresh = props.getProperty('OLIST_REFRESH_TOKEN');
+  const expiraEm = Number(props.getProperty('OLIST_ACCESS_EXPIRES_AT') || 0);
+
+  if (access && Date.now() < expiraEm) return access;
+  if (!refresh) throw new Error('OLIST_NAO_AUTORIZADA');
+
+  const clientId = props.getProperty('OLIST_CLIENT_ID');
+  const clientSecret = props.getProperty('OLIST_CLIENT_SECRET');
+
+  const resp = UrlFetchApp.fetch(OLIST.TOKEN_URL, {
+    method: 'post',
+    contentType: 'application/x-www-form-urlencoded',
+    payload: {
+      grant_type: 'refresh_token',
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refresh
+    },
+    muteHttpExceptions: true
+  });
+
+  const status = resp.getResponseCode();
+  const body = parseJson_(resp.getContentText());
+  if (status < 200 || status >= 300 || !body.access_token) {
+    props.deleteProperty('OLIST_ACCESS_TOKEN');
+    props.deleteProperty('OLIST_REFRESH_TOKEN');
+    throw new Error('OLIST_REAUTORIZACAO_NECESSARIA');
+  }
+
+  salvarTokensOlist_(body);
+  return body.access_token;
 }
 
-function validarToken_(token) {
-  const esperado = PropertiesService.getScriptProperties().getProperty('API_TOKEN');
-  if (!esperado || String(token || '') !== esperado) throw new Error('NÃO_AUTORIZADO');
+function salvarTokensOlist_(body) {
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('OLIST_ACCESS_TOKEN', String(body.access_token));
+  if (body.refresh_token) props.setProperty('OLIST_REFRESH_TOKEN', String(body.refresh_token));
+
+  const segundos = Number(body.expires_in || 14400);
+  // Renovar um minuto antes do vencimento.
+  props.setProperty('OLIST_ACCESS_EXPIRES_AT', String(Date.now() + Math.max(60, segundos - 60) * 1000));
 }
 
-function sheetObjects_(sheet) {
-  if (!sheet) throw new Error('ABA_NÃO_ENCONTRADA');
-  const values = sheet.getDataRange().getValues();
-  if (values.length < 2) return [];
-  const headers = values[0].map(String);
-  return values.slice(1).filter(r => r.some(v => v !== '')).map(r => objectFromRow_(headers, r));
+function temTokenOlist_() {
+  const props = PropertiesService.getScriptProperties();
+  return Boolean(props.getProperty('OLIST_ACCESS_TOKEN') || props.getProperty('OLIST_REFRESH_TOKEN'));
 }
 
-function sheetObjectsWithRows_(sheet) {
-  const values = sheet.getDataRange().getValues();
-  if (values.length < 2) return [];
-  const headers = values[0].map(String);
-  return values.slice(1).map((r, i) => ({ row: i + 2, data: objectFromRow_(headers, r) }))
-    .filter(x => Object.values(x.data).some(v => v !== ''));
-}
-
-function objectFromRow_(headers, row) {
-  const o = {};
-  headers.forEach((h, i) => o[h] = row[i]);
-  return o;
-}
-
-function rowObject_(sheet, row) {
-  const lastCol = sheet.getLastColumn();
-  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
-  const vals = sheet.getRange(row, 1, 1, lastCol).getValues()[0];
-  return objectFromRow_(headers, vals);
-}
-
-function headerMap_(sheet) {
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
-  const map = {};
-  headers.forEach((h, i) => map[h] = i + 1);
-  return map;
-}
-
-function findRowByHeaderValue_(sheet, header, value) {
-  const map = headerMap_(sheet);
-  const col = map[header];
-  if (!col) throw new Error('COLUNA_NÃO_ENCONTRADA_' + header);
-  const last = sheet.getLastRow();
-  if (last < 2) return null;
-  const vals = sheet.getRange(2, col, last - 1, 1).getDisplayValues();
-  for (let i = 0; i < vals.length; i++) if (String(vals[i][0]) === String(value)) return i + 2;
-  return null;
-}
-
-function getByHeader_(sheet, row, header) {
-  const col = headerMap_(sheet)[header];
-  if (!col) throw new Error('COLUNA_NÃO_ENCONTRADA_' + header);
-  return sheet.getRange(row, col).getValue();
-}
-
-function setByHeader_(sheet, row, header, value) {
-  const col = headerMap_(sheet)[header];
-  if (!col) throw new Error('COLUNA_NÃO_ENCONTRADA_' + header);
-  sheet.getRange(row, col).setValue(value);
+function query_(obj) {
+  return Object.keys(obj)
+    .filter(function(k) { return obj[k] !== undefined && obj[k] !== null && obj[k] !== ''; })
+    .map(function(k) { return encodeURIComponent(k) + '=' + encodeURIComponent(String(obj[k])); })
+    .join('&');
 }
 
 function somenteDigitos_(v) {
   return String(v || '').replace(/\D/g, '');
 }
 
+function parseJson_(text) {
+  try { return JSON.parse(text || '{}'); }
+  catch (e) { return { bruto: String(text || '') }; }
+}
+
 function json_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function jsonp_(e, obj) {
-  const cb = String((e && e.parameter && e.parameter.callback) || '').replace(/[^a-zA-Z0-9_.$]/g, '');
+  const cb = String((e && e.parameter && e.parameter.callback) || '')
+    .replace(/[^a-zA-Z0-9_.$]/g, '');
   if (!cb) return json_(obj);
+
   return ContentService.createTextOutput(cb + '(' + JSON.stringify(obj) + ');')
     .setMimeType(ContentService.MimeType.JAVASCRIPT);
 }
