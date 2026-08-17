@@ -14,9 +14,9 @@ function doGet(e) {
     const p = (e && e.parameter) || {};
     if (p.code) return concluirOAuthOlist_(p.code);
     const acao = String(p.acao || 'ping').toLowerCase();
-    if (acao === 'ping') return jsonp_(e, {ok:true, servico:'Conferencia Cafe da Casa', versao:'2.0', olistAutorizada:temTokenOlist_()});
+    if (acao === 'ping') return jsonp_(e, {ok:true, servico:'Conferencia Cafe da Casa', versao:'2.1', olistAutorizada:temTokenOlist_()});
     if (acao === 'autorizar') return iniciarOAuthOlist_();
-    if (acao === 'status_olist') return jsonp_(e, {ok:true, autorizada:temTokenOlist_()});
+    if (acao === 'status_olist') return jsonp_(e, statusOlist_());
     if (acao === 'danfe') return jsonp_(e, buscarDanfeOlist_(p.chave || ''));
     if (acao === 'pedido') return jsonp_(e, getPedidoBase_(p.pedidoId || '', p.chave || ''));
     if (acao === 'registrar') return jsonp_(e, registrarConferencia_(p));
@@ -36,6 +36,7 @@ function doPost(e) {
     if (acao === 'registrar') return json_(registrarConferencia_(p));
     if (acao === 'danfe') return json_(buscarDanfeOlist_(p.chave || ''));
     if (acao === 'dashboard') return json_(dashboard_());
+    if (acao === 'status_olist') return json_(statusOlist_());
     return json_({ok:false, erro:'ACAO_INVALIDA'});
   } catch (err) {
     return json_({ok:false, erro:'ERRO_INTERNO', detalhe:String(err && err.message || err)});
@@ -58,7 +59,7 @@ function concluirOAuthOlist_(code) {
   if (!clientId || !clientSecret) throw new Error('CREDENCIAIS_OLIST_NAO_CONFIGURADAS');
   const resp = UrlFetchApp.fetch(OLIST.TOKEN_URL,{method:'post',contentType:'application/x-www-form-urlencoded',payload:{grant_type:'authorization_code',client_id:clientId,client_secret:clientSecret,redirect_uri:redirectUri,code:code},muteHttpExceptions:true});
   const status=resp.getResponseCode(), body=parseJson_(resp.getContentText());
-  if(status<200||status>=300||!body.access_token) throw new Error('FALHA_OAUTH_OLIST_'+status+'_'+JSON.stringify(body));
+  if(status<200||status>=300||!body.access_token) throw new Error('FALHA_OAUTH_OLIST_'+status);
   salvarTokensOlist_(body);
   return HtmlService.createHtmlOutput('<!doctype html><html><head><meta charset="utf-8"></head><body style="font-family:Arial;background:#f3efe9;padding:30px"><div style="max-width:600px;margin:40px auto;background:#fff;padding:24px;border-radius:16px"><h2 style="color:#18794e">✅ Olist conectada com sucesso</h2><p>Pode fechar esta página.</p></div></body></html>');
 }
@@ -131,10 +132,64 @@ function codigoServeParaSku_(ss,codigo,sku){codigo=String(codigo||'').trim();if(
 function localizarCodigo_(ss,codigo){codigo=String(codigo||'').trim();const cat=carregarCatalogo_(ss);if(cat.produtos.some(p=>p.sku===codigo||p.codigoInterno===codigo))return true;const d=somenteDigitos_(codigo);return cat.codigos.some(c=>c.codigo===d);}
 function contarCorretas_(sh,ped,item){return sheetObjects_(sh).filter(c=>String(c.PedidoID)===ped&&String(c.ItemID)===item&&String(c.Resultado).toUpperCase()==='CORRETO').length;}
 function numeroNfeDaChave_(chave){const n=parseInt(chave.substring(25,34),10);if(!isFinite(n))throw new Error('NUMERO_NFE_INVALIDO_NA_CHAVE');return n;}
-function olistGet_(path,params){const token=obterAccessTokenOlist_(),qs=params?'?'+query_(params):'',resp=UrlFetchApp.fetch(OLIST.API_BASE+path+qs,{method:'get',headers:{Authorization:'Bearer '+token},muteHttpExceptions:true}),status=resp.getResponseCode(),body=parseJson_(resp.getContentText());if(status<200||status>=300)throw new Error('OLIST_API_'+status+'_'+JSON.stringify(body));return body;}
-function obterAccessTokenOlist_(){const p=PropertiesService.getScriptProperties(),a=p.getProperty('OLIST_ACCESS_TOKEN'),r=p.getProperty('OLIST_REFRESH_TOKEN'),exp=Number(p.getProperty('OLIST_ACCESS_EXPIRES_AT')||0);if(a&&Date.now()<exp)return a;if(!r)throw new Error('OLIST_NAO_AUTORIZADA');const resp=UrlFetchApp.fetch(OLIST.TOKEN_URL,{method:'post',contentType:'application/x-www-form-urlencoded',payload:{grant_type:'refresh_token',client_id:p.getProperty('OLIST_CLIENT_ID'),client_secret:p.getProperty('OLIST_CLIENT_SECRET'),refresh_token:r},muteHttpExceptions:true}),status=resp.getResponseCode(),body=parseJson_(resp.getContentText());if(status<200||status>=300||!body.access_token){p.deleteProperty('OLIST_ACCESS_TOKEN');p.deleteProperty('OLIST_REFRESH_TOKEN');throw new Error('OLIST_REAUTORIZACAO_NECESSARIA');}salvarTokensOlist_(body);return body.access_token;}
-function salvarTokensOlist_(b){const p=PropertiesService.getScriptProperties();p.setProperty('OLIST_ACCESS_TOKEN',String(b.access_token));if(b.refresh_token)p.setProperty('OLIST_REFRESH_TOKEN',String(b.refresh_token));const s=Number(b.expires_in||14400);p.setProperty('OLIST_ACCESS_EXPIRES_AT',String(Date.now()+Math.max(60,s-60)*1000));}
-function temTokenOlist_(){const p=PropertiesService.getScriptProperties();return Boolean(p.getProperty('OLIST_ACCESS_TOKEN')||p.getProperty('OLIST_REFRESH_TOKEN'));}
+
+function olistGet_(path,params){
+  const qs=params?'?'+query_(params):'';
+  let token=obterAccessTokenOlist_(false,''), resposta=olistFetch_(path,qs,token), status=resposta.status, body=resposta.body;
+  if(status===401){
+    token=obterAccessTokenOlist_(true,token);
+    resposta=olistFetch_(path,qs,token);status=resposta.status;body=resposta.body;
+  }
+  if(status<200||status>=300)throw new Error('OLIST_API_'+status+'_'+JSON.stringify(body));
+  return body;
+}
+
+function olistFetch_(path,qs,token){
+  const resp=UrlFetchApp.fetch(OLIST.API_BASE+path+qs,{method:'get',headers:{Authorization:'Bearer '+token},muteHttpExceptions:true});
+  return {status:resp.getResponseCode(),body:parseJson_(resp.getContentText())};
+}
+
+function obterAccessTokenOlist_(forcarRefresh,tokenRejeitado){
+  let p=PropertiesService.getScriptProperties();
+  let a=p.getProperty('OLIST_ACCESS_TOKEN'),r=p.getProperty('OLIST_REFRESH_TOKEN'),exp=Number(p.getProperty('OLIST_ACCESS_EXPIRES_AT')||0);
+  if(!forcarRefresh&&a&&Date.now()<exp)return a;
+
+  const lock=LockService.getScriptLock();lock.waitLock(15000);
+  try{
+    p=PropertiesService.getScriptProperties();a=p.getProperty('OLIST_ACCESS_TOKEN');r=p.getProperty('OLIST_REFRESH_TOKEN');exp=Number(p.getProperty('OLIST_ACCESS_EXPIRES_AT')||0);
+    if(!forcarRefresh&&a&&Date.now()<exp)return a;
+    if(forcarRefresh&&tokenRejeitado&&a&&a!==tokenRejeitado)return a;
+    if(!r){
+      if(!forcarRefresh&&a)return a;
+      throw new Error('OLIST_REAUTORIZACAO_NECESSARIA');
+    }
+    const clientId=p.getProperty('OLIST_CLIENT_ID'),clientSecret=p.getProperty('OLIST_CLIENT_SECRET');
+    if(!clientId||!clientSecret)throw new Error('CREDENCIAIS_OLIST_NAO_CONFIGURADAS');
+    const resp=UrlFetchApp.fetch(OLIST.TOKEN_URL,{method:'post',contentType:'application/x-www-form-urlencoded',payload:{grant_type:'refresh_token',client_id:clientId,client_secret:clientSecret,refresh_token:r},muteHttpExceptions:true});
+    const status=resp.getResponseCode(),body=parseJson_(resp.getContentText());
+    if(status<200||status>=300||!body.access_token){
+      p.setProperty('OLIST_REFRESH_LAST_ERROR',String(status));
+      p.setProperty('OLIST_REFRESH_LAST_ERROR_AT',String(Date.now()));
+      throw new Error('OLIST_REAUTORIZACAO_NECESSARIA');
+    }
+    salvarTokensOlist_(body);return String(body.access_token);
+  }finally{lock.releaseLock();}
+}
+
+function salvarTokensOlist_(b){
+  const p=PropertiesService.getScriptProperties();
+  p.setProperty('OLIST_ACCESS_TOKEN',String(b.access_token));
+  if(b.refresh_token)p.setProperty('OLIST_REFRESH_TOKEN',String(b.refresh_token));
+  const s=Number(b.expires_in||14400);
+  p.setProperty('OLIST_ACCESS_EXPIRES_AT',String(Date.now()+Math.max(60,s-120)*1000));
+  p.deleteProperty('OLIST_REFRESH_LAST_ERROR');p.deleteProperty('OLIST_REFRESH_LAST_ERROR_AT');
+}
+
+function statusOlist_(){
+  const p=PropertiesService.getScriptProperties(),a=p.getProperty('OLIST_ACCESS_TOKEN'),r=p.getProperty('OLIST_REFRESH_TOKEN'),exp=Number(p.getProperty('OLIST_ACCESS_EXPIRES_AT')||0),agora=Date.now();
+  return {ok:true,autorizada:Boolean(r||(a&&agora<exp)),accessPresente:Boolean(a),refreshPresente:Boolean(r),accessValidoAte:exp?new Date(exp).toISOString():'',ultimoErroRefresh:p.getProperty('OLIST_REFRESH_LAST_ERROR')||'',ultimoErroRefreshEm:p.getProperty('OLIST_REFRESH_LAST_ERROR_AT')||''};
+}
+function temTokenOlist_(){return statusOlist_().autorizada;}
 function getDb_(){const id=PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');if(!id)throw new Error('SPREADSHEET_ID_NAO_CONFIGURADO');return SpreadsheetApp.openById(id);}
 function requireSheet_(ss,n){const sh=ss.getSheetByName(n);if(!sh)throw new Error('ABA_NAO_ENCONTRADA_'+n);return sh;}
 function sheetObjects_(sh){const lr=sh.getLastRow(),lc=sh.getLastColumn();if(lr<2||lc<1)return[];const v=sh.getRange(1,1,lr,lc).getValues(),h=v[0].map(String);return v.slice(1).filter(r=>r.some(x=>x!=='')).map(r=>objectFromRow_(h,r));}
@@ -161,3 +216,5 @@ function parseJson_(t){try{return JSON.parse(t||'{}');}catch(e){return{bruto:Str
 function htmlAttr_(v){return String(v||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function json_(o){return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);}
 function jsonp_(e,o){const cb=String((e&&e.parameter&&e.parameter.callback)||'').replace(/[^a-zA-Z0-9_.$]/g,'');if(!cb)return json_(o);return ContentService.createTextOutput(cb+'('+JSON.stringify(o)+');').setMimeType(ContentService.MimeType.JAVASCRIPT);}
+
+function testarOlist(){console.log(JSON.stringify(statusOlist_()));}
