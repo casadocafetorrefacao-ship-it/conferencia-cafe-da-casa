@@ -1,0 +1,57 @@
+name: Optimize iPhone scanner
+
+on:
+  push:
+    paths:
+      - '.github/workflows/optimize-iphone-scanner.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Patch scanner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('producao.html')
+          s = p.read_text()
+          s = s.replace('https://unpkg.com/@zxing/browser@latest', 'https://unpkg.com/@zxing/browser@0.2.1')
+
+          helpers = r'''function validNFeKey(raw){const k=String(raw||'').replace(/\D/g,'');if(k.length!==44)return false;let sum=0,w=2;for(let i=42;i>=0;i--){sum+=Number(k[i])*w;w=w===9?2:w+1}let dv=11-(sum%11);if(dv>=10)dv=0;return dv===Number(k[43])}
+          function createFastReader(mode){const r=new ZXingBrowser.BrowserMultiFormatReader(undefined,{delayBetweenScanAttempts:80,delayBetweenScanSuccess:50,tryPlayVideoTimeout:5000});r.possibleFormats=mode==='danfe'?[ZXingBrowser.BarcodeFormat.CODE_128]:[ZXingBrowser.BarcodeFormat.CODE_128,ZXingBrowser.BarcodeFormat.EAN_13];return r}
+          async function tuneCamera(){try{const video=document.getElementById('video'),stream=video.srcObject,track=stream&&stream.getVideoTracks?stream.getVideoTracks()[0]:null;if(!track||!track.getCapabilities||!track.applyConstraints)return;const caps=track.getCapabilities(),adv={};if(Array.isArray(caps.focusMode)&&caps.focusMode.includes('continuous'))adv.focusMode='continuous';if(Object.keys(adv).length)await track.applyConstraints({advanced:[adv]})}catch(e){}}'''
+
+          start = r'''async function startScan(mode,auto=false){if(busy)return;if(!askOperator())return;hideFeedback();show('messageCard',false);show('choiceCard',false);scanMode=mode;scanLocked=false;document.getElementById('scannerTitle').textContent=mode==='danfe'?'Ler DANFE':'Ler próxima unidade';document.getElementById('guideText').textContent=mode==='danfe'?'Mantenha a DANFE firme e o código horizontal dentro da moldura':'Aponte para o código interno ou EAN do pacote';show('scannerCard',true);try{reader=createFastReader(mode);controls=await reader.decodeFromConstraints({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30,max:30}}},document.getElementById('video'),(result,error,ctrl)=>{if(!result||scanLocked||busy)return;const c=result.getText().trim();if(mode==='danfe'&&!validNFeKey(c)){document.getElementById('guideText').textContent='Procurando a chave válida de 44 dígitos… mantenha o código na moldura';return}scanLocked=true;ctrl.stop();controls=null;show('scannerCard',false);handleScan(c)});tuneCamera()}catch(e){show('scannerCard',false);beep(false);msg('❌ Não consegui abrir a câmera. Verifique a permissão.','bad');if(auto){feedback('error','CÂMERA NÃO ABRIU','Toque em <b>LER PRÓXIMA UNIDADE</b> para tentar novamente.',1600)}}}'''
+
+          pattern = r"async function startScan\(mode,auto=false\)\{.*?\}\nfunction stopScan"
+          replacement = helpers + '\n' + start + '\nfunction stopScan'
+          s2, n = re.subn(pattern, replacement, s, count=1, flags=re.S)
+          if n != 1:
+              raise SystemExit(f'Falha ao localizar startScan: {n}')
+          p.write_text(s2)
+          PY
+
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('producao.html').read_text()
+          js=s.rsplit('<script>',1)[1].split('</script>',1)[0]
+          Path('/tmp/producao.js').write_text(js)
+          PY
+          node --check /tmp/producao.js
+
+      - name: Commit optimized scanner
+        run: |
+          git config user.name "Cafe da Casa Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add producao.html
+          git diff --cached --quiet && exit 0
+          git commit -m "Acelerar leitura de DANFE no iPhone"
+          git push
