@@ -1,10 +1,14 @@
 const APPS_SCRIPT = 'https://script.google.com/macros/s/AKfycbyYE3vU6wwy30egzUfvEQRhjkfTxZ-3Xg0NJUCLkvAqh98pHgPbzu-45my5pFlOpS52xA/exec';
+
 const ALLOWED_ORIGINS = new Set([
   'https://casadocafetorrefacao-ship-it.github.io',
 ]);
 
 function corsHeaders(origin) {
-  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : 'https://casadocafetorrefacao-ship-it.github.io';
+  const allowed = ALLOWED_ORIGINS.has(origin)
+    ? origin
+    : 'https://casadocafetorrefacao-ship-it.github.io';
+
   return {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
@@ -19,10 +23,17 @@ function cleanParams(url) {
     'acao','chave','pedidoId','itemId','codigoLido','usuario','confirmacaoVisual','observacao'
   ]);
   const out = new URLSearchParams();
-  for (const [k, v] of url.searchParams.entries()) {
-    if (allowed.has(k)) out.set(k, v);
+  for (const [key, value] of url.searchParams.entries()) {
+    if (allowed.has(key)) out.set(key, value);
   }
   return out;
+}
+
+function jsonResponse(data, status, cors) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...cors, 'Content-Type': 'application/json; charset=utf-8' }
+  });
 }
 
 export default {
@@ -36,46 +47,58 @@ export default {
 
     try {
       let upstream;
+
       if (request.method === 'GET') {
         const incoming = new URL(request.url);
-        const qs = cleanParams(incoming).toString();
-        upstream = await fetch(APPS_SCRIPT + (qs ? '?' + qs : ''), {
+        const query = cleanParams(incoming).toString();
+
+        upstream = await fetch(APPS_SCRIPT + (query ? '?' + query : ''), {
           method: 'GET',
           redirect: 'follow',
-          headers: { 'User-Agent': 'CafeDaCasa-Conferencia-Worker/1.0' },
+          headers: { 'User-Agent': 'CafeDaCasa-Conferencia-Worker/2.1' }
         });
       } else if (request.method === 'POST') {
-        const body = await request.text();
+        const raw = await request.text();
+        let body;
+        try {
+          const parsed = JSON.parse(raw || '{}');
+          const permitted = ['acao','chave','pedidoId','itemId','codigoLido','usuario','confirmacaoVisual','observacao'];
+          body = JSON.stringify(Object.fromEntries(
+            permitted
+              .filter(k => Object.prototype.hasOwnProperty.call(parsed, k))
+              .map(k => [k, parsed[k]])
+          ));
+        } catch {
+          return jsonResponse({ ok:false, erro:'JSON_INVALIDO' }, 400, cors);
+        }
+
         upstream = await fetch(APPS_SCRIPT, {
           method: 'POST',
           redirect: 'follow',
           headers: {
             'Content-Type': 'application/json',
-            'User-Agent': 'CafeDaCasa-Conferencia-Worker/1.0',
+            'User-Agent': 'CafeDaCasa-Conferencia-Worker/2.1'
           },
-          body,
+          body
         });
       } else {
-        return new Response(JSON.stringify({ ok:false, erro:'METODO_NAO_PERMITIDO' }), {
-          status: 405,
-          headers: { ...cors, 'Content-Type': 'application/json; charset=utf-8' },
-        });
+        return jsonResponse({ ok:false, erro:'METODO_NAO_PERMITIDO' }, 405, cors);
       }
 
       const text = await upstream.text();
       return new Response(text, {
         status: upstream.status,
-        headers: { ...cors, 'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8' },
+        headers: {
+          ...cors,
+          'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8'
+        }
       });
     } catch (err) {
-      return new Response(JSON.stringify({
+      return jsonResponse({
         ok:false,
         erro:'PROXY_INDISPONIVEL',
-        detalhe:String(err && err.message || err),
-      }), {
-        status: 502,
-        headers: { ...cors, 'Content-Type': 'application/json; charset=utf-8' },
-      });
+        detalhe:String(err && err.message ? err.message : err)
+      }, 502, cors);
     }
   }
 };
