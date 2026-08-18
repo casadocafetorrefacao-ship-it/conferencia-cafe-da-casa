@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#261b14">
+<title>Painel Administrativo • Café da Casa</title>
+<style>
+:root{--bg:#f3efe9;--card:#fff;--ink:#201a16;--muted:#70665e;--brand:#281d16;--ok:#18794e;--bad:#b42318;--warn:#8a5a00;--line:#ded6cc}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink)}header{background:var(--brand);color:#fff;padding:18px;position:sticky;top:0;z-index:8}header h1{font-size:20px;margin:0}.sub{font-size:12px;opacity:.78;margin-top:4px}main{max-width:980px;margin:auto;padding:14px 14px 70px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px #00000008}h2{font-size:19px;margin:0 0 4px}button{border:0;border-radius:11px;padding:11px 14px;font-weight:800;font-size:14px;cursor:pointer}.secondary{background:#ede7df;color:var(--ink)}.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.small{font-size:12px;color:var(--muted)}.dashGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:14px}.stat{border-radius:12px;padding:13px;background:#f7f3ee}.stat b{display:block;font-size:26px}.filters{display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-top:12px}input,select{width:100%;padding:12px;border:1px solid #cfc6bb;border-radius:10px;font-size:14px;background:#fff}.orderRow{border:1px solid #ece4da;border-radius:12px;padding:12px;margin:8px 0;background:#fff}.orderHead{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}.status{font-weight:850}.status-ok{color:var(--ok)}.status-erro{color:var(--bad)}.status-warn{color:var(--warn)}.progress{height:9px;background:#e8e0d8;border-radius:999px;overflow:hidden;margin:8px 0}.bar{height:100%;background:var(--ok)}.offline{color:var(--bad);font-weight:800}.online{color:var(--ok);font-weight:800}@media(max-width:700px){.dashGrid{grid-template-columns:1fr 1fr}.filters{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><h1>Painel Administrativo</h1><div class="sub">Café da Casa • Conferência da produção</div></header>
+<main>
+<section class="card">
+  <div class="row"><div><h2>Visão geral</h2><div class="small">Atualização das conferências registradas na Beep</div></div><div><span id="connection" class="small">Verificando...</span> <button class="secondary" onclick="loadDashboard()">Atualizar</button></div></div>
+  <div class="dashGrid">
+    <div class="stat"><span class="small">Aguardando</span><b id="dA">0</b></div>
+    <div class="stat"><span class="small">Em conferência</span><b id="dE">0</b></div>
+    <div class="stat"><span class="small">Conferidos</span><b id="dC">0</b></div>
+    <div class="stat"><span class="small">Divergências</span><b id="dD">0</b></div>
+  </div>
+  <div class="filters"><input id="search" placeholder="Buscar pedido, NF, cliente ou operador" oninput="render()"><select id="statusFilter" onchange="render()"><option value="">Todos os status</option><option>AGUARDANDO</option><option>EM CONFERÊNCIA</option><option>CONFERIDO</option><option>DIVERGÊNCIA</option></select></div>
+</section>
+<section class="card"><div id="orders" class="small">Carregando...</div></section>
+</main>
+<script>
+const API='https://bold-limit-b7f0.casadocafetorrefacao.workers.dev/';
+let data=[];
+function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+async function api(params){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);try{const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params),cache:'no-store',signal:controller.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()}finally{clearTimeout(timer)}}
+function statusClass(s){if(s==='CONFERIDO')return 'status-ok';if(s==='DIVERGÊNCIA')return 'status-erro';if(s==='EM CONFERÊNCIA')return 'status-warn';return ''}
+function render(){const q=document.getElementById('search').value.trim().toLowerCase(),sf=document.getElementById('statusFilter').value;const box=document.getElementById('orders');const rows=data.filter(p=>{if(sf&&p.status!==sf)return false;if(!q)return true;return [p.numeroPedido,p.numeroNFe,p.cliente,p.conferidoPor,p.status].join(' ').toLowerCase().includes(q)});if(!rows.length){box.textContent='Nenhum pedido encontrado.';return}box.innerHTML='';rows.forEach(p=>{const total=Number(p.totalItens||0),done=Number(p.totalConferidos||0),pct=total?Math.min(100,done/total*100):0;const r=document.createElement('div');r.className='orderRow';r.innerHTML='<div class="orderHead"><div><b>Pedido '+esc(p.numeroPedido||'—')+' · NF '+esc(p.numeroNFe||'—')+'</b><div class="small">'+esc(p.cliente||'')+'</div></div><div class="status '+statusClass(p.status)+'">'+esc(p.status||'AGUARDANDO')+'</div></div><div class="progress"><div class="bar" style="width:'+pct+'%"></div></div><div class="small"><b>'+done+'/'+total+'</b> unidades · Conferido por: '+esc(p.conferidoPor||'—')+'</div>';box.appendChild(r)})}
+async function loadDashboard(){document.getElementById('connection').textContent='Atualizando...';try{const d=await api({acao:'dashboard'});if(!d.ok)throw new Error(d.erro||'erro');document.getElementById('dA').textContent=d.contagens['AGUARDANDO']||0;document.getElementById('dE').textContent=d.contagens['EM CONFERÊNCIA']||0;document.getElementById('dC').textContent=d.contagens['CONFERIDO']||0;document.getElementById('dD').textContent=d.contagens['DIVERGÊNCIA']||0;data=d.pedidos||[];document.getElementById('connection').className='online';document.getElementById('connection').textContent='● Online';render()}catch(e){document.getElementById('connection').className='offline';document.getElementById('connection').textContent='● Falha de conexão';document.getElementById('orders').textContent='Não foi possível carregar o painel.'}}
+loadDashboard();setInterval(loadDashboard,30000);
+</script>
+</body></html>
