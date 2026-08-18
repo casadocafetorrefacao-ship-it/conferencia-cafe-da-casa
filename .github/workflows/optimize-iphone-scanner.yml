@@ -1,21 +1,28 @@
-name: Optimize iPhone scanner
+name: Optimize production scanner and finish flow
 
 on:
   push:
     paths:
       - '.github/workflows/optimize-iphone-scanner.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
-  patch:
+  patch-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Patch scanner
+
+      - name: Patch production scanner and finish flow
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -23,22 +30,71 @@ jobs:
 
           p = Path('producao.html')
           s = p.read_text()
+
+          # Pin a stable ZXing Browser version.
           s = s.replace('https://unpkg.com/@zxing/browser@latest', 'https://unpkg.com/@zxing/browser@0.2.1')
 
+          # Scanner controls + final modal action styles.
+          css_anchor = 'footer{font-size:10px;color:var(--muted);text-align:center;margin-top:16px}'
+          css_extra = '.scannerControls{position:absolute;top:10px;right:10px;z-index:4;display:flex;gap:7px}.scannerCtl{background:#000b;color:#fff;border:1px solid #ffffff66;border-radius:999px;padding:9px 12px;font-size:13px;font-weight:900;backdrop-filter:blur(8px)}.scannerCtl.active{background:#fff;color:#111}.feedbackActions{margin-top:20px}.feedbackActions button{width:100%}.feedbackActions button+button{margin-top:8px}'
+          if css_extra not in s:
+              s = s.replace(css_anchor, css_extra + css_anchor)
+
+          # Add zoom control inside the camera view.
+          video_anchor = '<div class="guide"></div><div class="guideText" id="guideText">Enquadre o código inteiro</div>'
+          video_new = '<div class="guide"></div><div class="scannerControls"><button id="zoomBtn" class="scannerCtl hidden" type="button" onclick="toggleZoom()">Zoom 2×</button></div><div class="guideText" id="guideText">Enquadre o código inteiro</div>'
+          if 'id="zoomBtn"' not in s:
+              s = s.replace(video_anchor, video_new)
+
+          # Add action buttons area to the completion modal.
+          old_modal = '<div id="feedbackText" class="feedbackText"></div></div></div>'
+          new_modal = '<div id="feedbackText" class="feedbackText"></div><div id="feedbackActions" class="feedbackActions hidden"></div></div></div>'
+          if 'id="feedbackActions"' not in s:
+              s = s.replace(old_modal, new_modal)
+
+          # Feedback function now resets actions; add final-order actions.
+          old_feedback = "function feedback(kind,title,text='',ms=0,next=null){clearTimeout(autoTimer);const box=document.getElementById('feedbackBox'),icon=document.getElementById('feedbackIcon');box.className='feedbackBox '+kind;document.getElementById('feedbackTitle').textContent=title;document.getElementById('feedbackText').innerHTML=text;icon.textContent=kind==='success'?'✓':kind==='error'?'✕':kind==='complete'?'🏁':'';show('feedback',true);if(ms>0){autoTimer=setTimeout(()=>{show('feedback',false);if(next)next()},ms)}}"
+          new_feedback = "function feedback(kind,title,text='',ms=0,next=null){clearTimeout(autoTimer);const box=document.getElementById('feedbackBox'),icon=document.getElementById('feedbackIcon'),actions=document.getElementById('feedbackActions');actions.innerHTML='';actions.classList.add('hidden');box.className='feedbackBox '+kind;document.getElementById('feedbackTitle').textContent=title;document.getElementById('feedbackText').innerHTML=text;icon.textContent=kind==='success'?'✓':kind==='error'?'✕':kind==='complete'?'🏁':'';show('feedback',true);if(ms>0){autoTimer=setTimeout(()=>{show('feedback',false);if(next)next()},ms)}}\nfunction completeFeedback(){feedback('complete','PEDIDO CONFERIDO!','Todas as unidades foram registradas corretamente.<br><b>Conferência finalizada.</b>');const actions=document.getElementById('feedbackActions');actions.innerHTML='<button class=\"primary\" onclick=\"nextDanfe()\">📄 LER PRÓXIMA DANFE</button><button class=\"secondary\" onclick=\"hideFeedback()\">VER PEDIDO CONFERIDO</button>';actions.classList.remove('hidden')}\nfunction nextDanfe(){resetOrder();setTimeout(()=>startScan('danfe',true),150)}"
+          if 'function completeFeedback()' not in s:
+              if old_feedback not in s:
+                  raise SystemExit('Nao encontrei a funcao feedback')
+              s = s.replace(old_feedback, new_feedback)
+
+          s = s.replace("feedback('complete','PEDIDO CONFERIDO!','Todas as unidades foram registradas corretamente.<br><b>Conferência finalizada.</b>');msg('✅ Pedido totalmente conferido.','ok')", "completeFeedback();msg('✅ Pedido totalmente conferido.','ok')")
+
           helpers = r'''function validNFeKey(raw){const k=String(raw||'').replace(/\D/g,'');if(k.length!==44)return false;let sum=0,w=2;for(let i=42;i>=0;i--){sum+=Number(k[i])*w;w=w===9?2:w+1}let dv=11-(sum%11);if(dv>=10)dv=0;return dv===Number(k[43])}
-          function createFastReader(mode){const r=new ZXingBrowser.BrowserMultiFormatReader(undefined,{delayBetweenScanAttempts:80,delayBetweenScanSuccess:50,tryPlayVideoTimeout:5000});r.possibleFormats=mode==='danfe'?[ZXingBrowser.BarcodeFormat.CODE_128]:[ZXingBrowser.BarcodeFormat.CODE_128,ZXingBrowser.BarcodeFormat.EAN_13];return r}
-          async function tuneCamera(){try{const video=document.getElementById('video'),stream=video.srcObject,track=stream&&stream.getVideoTracks?stream.getVideoTracks()[0]:null;if(!track||!track.getCapabilities||!track.applyConstraints)return;const caps=track.getCapabilities(),adv={};if(Array.isArray(caps.focusMode)&&caps.focusMode.includes('continuous'))adv.focusMode='continuous';if(Object.keys(adv).length)await track.applyConstraints({advanced:[adv]})}catch(e){}}'''
+function createFastReader(mode){const r=new ZXingBrowser.BrowserMultiFormatReader(undefined,{delayBetweenScanAttempts:80,delayBetweenScanSuccess:50,tryPlayVideoTimeout:5000});r.possibleFormats=mode==='danfe'?[ZXingBrowser.BarcodeFormat.CODE_128]:[ZXingBrowser.BarcodeFormat.CODE_128,ZXingBrowser.BarcodeFormat.EAN_13];return r}
+function cameraTrack(){try{const stream=document.getElementById('video').srcObject;return stream&&stream.getVideoTracks?stream.getVideoTracks()[0]:null}catch(e){return null}}
+let currentZoom=1,zoomSupported=false,zoomMin=1,zoomMax=1,zoomTarget=2;
+async function applyZoom(value){try{const track=cameraTrack();if(!track||!track.getCapabilities||!track.applyConstraints)return false;const caps=track.getCapabilities();if(!caps.zoom)return false;zoomMin=Number(caps.zoom.min||1);zoomMax=Number(caps.zoom.max||1);zoomTarget=Math.min(zoomMax,Math.max(zoomMin,2));const target=Math.min(zoomMax,Math.max(zoomMin,Number(value)));await track.applyConstraints({advanced:[{zoom:target}]});currentZoom=target;zoomSupported=true;const b=document.getElementById('zoomBtn');b.classList.remove('hidden');b.classList.toggle('active',currentZoom>zoomMin+0.05);b.textContent=currentZoom>zoomMin+0.05?'Zoom '+currentZoom.toFixed(currentZoom%1?1:0)+'×':'Zoom 1×';return true}catch(e){return false}}
+async function toggleZoom(){if(!zoomSupported)return;const next=currentZoom>zoomMin+0.05?zoomMin:zoomTarget;await applyZoom(next)}
+async function tuneCamera(mode){const btn=document.getElementById('zoomBtn');btn.classList.add('hidden');zoomSupported=false;currentZoom=1;try{const track=cameraTrack();if(!track||!track.getCapabilities||!track.applyConstraints)return;const caps=track.getCapabilities(),adv={};if(Array.isArray(caps.focusMode)&&caps.focusMode.includes('continuous'))adv.focusMode='continuous';if(Object.keys(adv).length)await track.applyConstraints({advanced:[adv]});if(mode==='danfe'&&caps.zoom){await applyZoom(2)}else if(caps.zoom){await applyZoom(1)}}catch(e){}}'''
 
-          start = r'''async function startScan(mode,auto=false){if(busy)return;if(!askOperator())return;hideFeedback();show('messageCard',false);show('choiceCard',false);scanMode=mode;scanLocked=false;document.getElementById('scannerTitle').textContent=mode==='danfe'?'Ler DANFE':'Ler próxima unidade';document.getElementById('guideText').textContent=mode==='danfe'?'Mantenha a DANFE firme e o código horizontal dentro da moldura':'Aponte para o código interno ou EAN do pacote';show('scannerCard',true);try{reader=createFastReader(mode);controls=await reader.decodeFromConstraints({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30,max:30}}},document.getElementById('video'),(result,error,ctrl)=>{if(!result||scanLocked||busy)return;const c=result.getText().trim();if(mode==='danfe'&&!validNFeKey(c)){document.getElementById('guideText').textContent='Procurando a chave válida de 44 dígitos… mantenha o código na moldura';return}scanLocked=true;ctrl.stop();controls=null;show('scannerCard',false);handleScan(c)});tuneCamera()}catch(e){show('scannerCard',false);beep(false);msg('❌ Não consegui abrir a câmera. Verifique a permissão.','bad');if(auto){feedback('error','CÂMERA NÃO ABRIU','Toque em <b>LER PRÓXIMA UNIDADE</b> para tentar novamente.',1600)}}}'''
+          start = r'''async function startScan(mode,auto=false){if(busy)return;if(!askOperator())return;hideFeedback();show('messageCard',false);show('choiceCard',false);scanMode=mode;scanLocked=false;document.getElementById('scannerTitle').textContent=mode==='danfe'?'Ler DANFE':'Ler próxima unidade';document.getElementById('guideText').textContent=mode==='danfe'?'Mantenha a DANFE firme e o código horizontal dentro da moldura':'Aponte para o código interno ou EAN do pacote';show('scannerCard',true);try{reader=createFastReader(mode);controls=await reader.decodeFromConstraints({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30,max:30}}},document.getElementById('video'),(result,error,ctrl)=>{if(!result||scanLocked||busy)return;const c=result.getText().trim();if(mode==='danfe'&&!validNFeKey(c)){document.getElementById('guideText').textContent='Procurando a chave válida de 44 dígitos… mantenha o código na moldura';return}scanLocked=true;ctrl.stop();controls=null;document.getElementById('zoomBtn').classList.add('hidden');show('scannerCard',false);handleScan(c)});await tuneCamera(mode)}catch(e){show('scannerCard',false);document.getElementById('zoomBtn').classList.add('hidden');beep(false);msg('❌ Não consegui abrir a câmera. Verifique a permissão.','bad');if(auto){feedback('error','CÂMERA NÃO ABRIU','Toque em <b>LER PRÓXIMA UNIDADE</b> para tentar novamente.',1600)}}}'''
 
-          pattern = r"async function startScan\(mode,auto=false\)\{.*?\}\nfunction stopScan"
-          replacement = helpers + '\n' + start + '\nfunction stopScan'
-          s2, n = re.subn(pattern, replacement, s, count=1, flags=re.S)
-          if n != 1:
-              raise SystemExit(f'Falha ao localizar startScan: {n}')
-          p.write_text(s2)
+          # Replace scanner only if fast scanner has not already been inserted.
+          if 'function createFastReader(mode)' not in s:
+              pattern = r"async function startScan\(mode,auto=false\)\{.*?\}\nfunction stopScan"
+              replacement = helpers + '\n' + start + '\nfunction stopScan'
+              s, n = re.subn(pattern, replacement, s, count=1, flags=re.S)
+              if n != 1:
+                  raise SystemExit(f'Falha ao localizar startScan: {n}')
+          else:
+              # If a prior fast-scanner patch exists, replace its helper/start section with this unified version.
+              pattern = r"function validNFeKey\(raw\)\{.*?\}\nfunction stopScan"
+              replacement = helpers + '\n' + start + '\nfunction stopScan'
+              s, n = re.subn(pattern, replacement, s, count=1, flags=re.S)
+              if n != 1:
+                  raise SystemExit(f'Falha ao atualizar scanner existente: {n}')
+
+          # Always hide zoom button when scanner stops.
+          s = s.replace("function stopScan(){try{controls&&controls.stop()}catch(e){}controls=null;scanLocked=false;show('scannerCard',false)}", "function stopScan(){try{controls&&controls.stop()}catch(e){}controls=null;scanLocked=false;const z=document.getElementById('zoomBtn');if(z)z.classList.add('hidden');show('scannerCard',false)}")
+
+          p.write_text(s)
           PY
 
+      - name: Validate production JavaScript
+        run: |
           python - <<'PY'
           from pathlib import Path
           s=Path('producao.html').read_text()
@@ -47,11 +103,24 @@ jobs:
           PY
           node --check /tmp/producao.js
 
-      - name: Commit optimized scanner
+      - name: Commit optimized production page
         run: |
           git config user.name "Cafe da Casa Bot"
           git config user.email "actions@users.noreply.github.com"
           git add producao.html
-          git diff --cached --quiet && exit 0
-          git commit -m "Acelerar leitura de DANFE no iPhone"
-          git push
+          if ! git diff --cached --quiet; then
+            git commit -m "Melhorar scanner mobile, zoom e fim da conferência"
+            git push
+          fi
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: '.'
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
